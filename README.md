@@ -33,3 +33,10 @@ Built to practice backend engineering with .NET: clean endpoints, database persi
 dotnet restore
 dotnet tool run dotnet-ef database update
 dotnet run
+
+### JWT Key (local)
+This project uses User Secrets for the JWT signing key.
+
+```bash
+dotnet user-secrets init
+dotnet user-secrets set "Jwt:Key" "YOUR_LONG_RANDOM_SECRET"
