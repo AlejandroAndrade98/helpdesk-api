@@ -86,11 +86,10 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Db:
 }
 
 
-if (app.Environment.IsDevelopment())
-{
+
     app.UseSwagger();
     app.UseSwaggerUI();
-}
+
 
 app.UseAuthentication();
 app.UseAuthorization();
