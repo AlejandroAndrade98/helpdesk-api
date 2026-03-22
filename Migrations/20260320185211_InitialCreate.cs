@@ -1,5 +1,6 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
@@ -15,12 +16,13 @@ namespace HelpDeskApi.Migrations
                 name: "Users",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    DisplayName = table.Column<string>(type: "TEXT", nullable: false),
-                    Email = table.Column<string>(type: "TEXT", nullable: false),
-                    Role = table.Column<int>(type: "INTEGER", nullable: false),
-                    CreatedAtUtc = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    DisplayName = table.Column<string>(type: "text", nullable: false),
+                    Email = table.Column<string>(type: "text", nullable: false),
+                    Role = table.Column<int>(type: "integer", nullable: false),
+                    PasswordHash = table.Column<string>(type: "text", nullable: true),
+                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -31,16 +33,16 @@ namespace HelpDeskApi.Migrations
                 name: "Tickets",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    Title = table.Column<string>(type: "TEXT", nullable: false),
-                    Description = table.Column<string>(type: "TEXT", nullable: false),
-                    Status = table.Column<int>(type: "INTEGER", nullable: false),
-                    Priority = table.Column<int>(type: "INTEGER", nullable: false),
-                    CreatedById = table.Column<int>(type: "INTEGER", nullable: false),
-                    AssignedToId = table.Column<int>(type: "INTEGER", nullable: true),
-                    CreatedAtUtc = table.Column<DateTime>(type: "TEXT", nullable: false),
-                    UpdatedAtUtc = table.Column<DateTime>(type: "TEXT", nullable: true)
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Title = table.Column<string>(type: "text", nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: false),
+                    Status = table.Column<int>(type: "integer", nullable: false),
+                    Priority = table.Column<int>(type: "integer", nullable: false),
+                    CreatedById = table.Column<int>(type: "integer", nullable: false),
+                    AssignedToId = table.Column<int>(type: "integer", nullable: true),
+                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    UpdatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -63,13 +65,13 @@ namespace HelpDeskApi.Migrations
                 name: "TicketComments",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    TicketId = table.Column<int>(type: "INTEGER", nullable: false),
-                    AuthorId = table.Column<int>(type: "INTEGER", nullable: false),
-                    Body = table.Column<string>(type: "TEXT", nullable: false),
-                    IsInternal = table.Column<bool>(type: "INTEGER", nullable: false),
-                    CreatedAtUtc = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    TicketId = table.Column<int>(type: "integer", nullable: false),
+                    AuthorId = table.Column<int>(type: "integer", nullable: false),
+                    Body = table.Column<string>(type: "text", nullable: false),
+                    IsInternal = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {

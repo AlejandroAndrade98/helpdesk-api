@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: helpdesk
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d helpdesk"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build: .
+    environment:
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=helpdesk;Username=postgres;Password=postgres"
+      Db__Provider: "postgres"
+      Db__AutoMigrate: "true"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -38,9 +38,22 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// EF Core + SQLite
+// EF Core (SQLite o Postgres según config)
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite("Data Source=helpdesk.db"));
+{
+    var provider = builder.Configuration["Db:Provider"]?.ToLowerInvariant();
+    var conn = builder.Configuration.GetConnectionString("Default");
+
+    if (provider == "postgres")
+    {
+        options.UseNpgsql(conn);
+    }
+    else
+    {
+        // default: sqlite (local dev)
+        options.UseSqlite(conn ?? "Data Source=helpdesk.db");
+    }
+});
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -64,7 +77,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
-
+// Auto-migrate: en Development siempre, en Production solo si Db:AutoMigrate=true
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Db:AutoMigrate"))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
 
 
 if (app.Environment.IsDevelopment())
@@ -83,3 +102,5 @@ app.MapCommentEndpoints();
 app.MapAuthEndpoints();
 
 app.Run();
+
+public partial class Program { }

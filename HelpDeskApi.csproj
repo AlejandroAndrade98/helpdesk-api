@@ -16,7 +16,14 @@
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.3" />
     <PackageReference Include="Microsoft.OpenApi" Version="2.4.1" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.3" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.4" />
   </ItemGroup>
+
+  <ItemGroup>
+  <Compile Remove="HelpDeskApi.Tests\**\*.cs" />
+  <Content Remove="HelpDeskApi.Tests\**\*" />
+  <None Remove="HelpDeskApi.Tests\**\*" />
+</ItemGroup>
 
 </Project>

@@ -1,5 +1,6 @@
 using HelpDeskApi.Data;
 using HelpDeskApi.Domain;
+using HelpDeskApi.Features.Auth;
 using Microsoft.EntityFrameworkCore;
 
 namespace HelpDeskApi.Features.Tickets;
@@ -8,20 +9,40 @@ public static class TicketEndpoints
 {
     public static RouteGroupBuilder MapTicketEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/tickets");
+        var group = app.MapGroup("/tickets")
+            .RequireAuthorization();
 
         // Crear ticket
-        group.MapPost("/", async (CreateTicketRequest req, AppDbContext db) =>
+        group.MapPost("/", async (CreateTicketRequest req, AppDbContext db, HttpContext http) =>
         {
-            var creatorExists = await db.Users.AnyAsync(u => u.Id == req.CreatedById);
-            if (!creatorExists)
-                return Results.NotFound(new { message = "CreatedById no existe." });
+            var userId = http.User.GetUserId();
+            if (userId is null) return Results.Unauthorized();
+
+            // Validaciones básicas (pro)
+            if (string.IsNullOrWhiteSpace(req.Title) || req.Title.Trim().Length > 120)
+                return Results.BadRequest(new { message = "Title es requerido y máximo 120 caracteres." });
+
+            if (string.IsNullOrWhiteSpace(req.Description) || req.Description.Trim().Length > 4000)
+                return Results.BadRequest(new { message = "Description es requerido y máximo 4000 caracteres." });
+
+            // ✅ Pro: Requester no debería asignar al crear
+            if (req.AssignedToId is not null && !http.User.IsAgentOrAdmin())
+                return Results.Forbid();
 
             if (req.AssignedToId is not null)
             {
-                var assigneeExists = await db.Users.AnyAsync(u => u.Id == req.AssignedToId);
-                if (!assigneeExists)
+                // ✅ Pro: el AssignedTo debe existir y ser Agent/Admin
+                var assignee = await db.Users
+                    .AsNoTracking()
+                    .Where(u => u.Id == req.AssignedToId)
+                    .Select(u => new { u.Id, u.Role })
+                    .FirstOrDefaultAsync();
+
+                if (assignee is null)
                     return Results.NotFound(new { message = "AssignedToId no existe." });
+
+                if (assignee.Role != UserRole.Agent && assignee.Role != UserRole.Admin)
+                    return Results.Conflict(new { message = "Solo un Agent o Admin puede ser asignado a un ticket." });
             }
 
             var ticket = new Ticket
@@ -30,7 +51,7 @@ public static class TicketEndpoints
                 Description = req.Description.Trim(),
                 Priority = req.Priority,
                 Status = TicketStatus.New,
-                CreatedById = req.CreatedById,
+                CreatedById = userId.Value,
                 AssignedToId = req.AssignedToId
             };
 
@@ -40,23 +61,30 @@ public static class TicketEndpoints
             return Results.Created($"/tickets/{ticket.Id}", new { ticket.Id });
         });
 
-        // Listar tickets (básico)
+        // Listar tickets (filters + paging + ownership + privacy)
         group.MapGet("/", async (
             int? status,
             int? priority,
             int? assignedToId,
             int page,
             int pageSize,
-            AppDbContext db) =>
+            AppDbContext db,
+            HttpContext http) =>
         {
-            // defaults
+            var userId = http.User.GetUserId();
+            if (userId is null) return Results.Unauthorized();
+
+            var includeEmail = http.User.IsAgentOrAdmin();
+
             if (page <= 0) page = 1;
             if (pageSize <= 0) pageSize = 10;
             if (pageSize > 50) pageSize = 50;
 
-            var query = db.Tickets
-                .AsNoTracking()
-                .AsQueryable();
+            var query = db.Tickets.AsNoTracking().AsQueryable();
+
+            // ✅ Ownership: requester solo ve sus tickets
+            if (!http.User.IsAgentOrAdmin())
+                query = query.Where(t => t.CreatedById == userId.Value);
 
             if (status is not null)
                 query = query.Where(t => (int)t.Status == status);
@@ -78,56 +106,58 @@ public static class TicketEndpoints
                     t.Title,
                     t.Status,
                     t.Priority,
-                    new UserMini(t.CreatedBy!.Id, t.CreatedBy.DisplayName, t.CreatedBy.Email),
-                    t.AssignedTo == null ? null : new UserMini(t.AssignedTo.Id, t.AssignedTo.DisplayName, t.AssignedTo.Email),
+                    new UserMini(t.CreatedBy!.Id, t.CreatedBy.DisplayName, includeEmail ? t.CreatedBy.Email : null),
+                    t.AssignedTo == null ? null : new UserMini(t.AssignedTo.Id, t.AssignedTo.DisplayName, includeEmail ? t.AssignedTo.Email : null),
                     t.CreatedAtUtc
                 ))
                 .ToListAsync();
 
-            return Results.Ok(new
-            {
-                page,
-                pageSize,
-                total,
-                items
-            });
+            return Results.Ok(new { page, pageSize, total, items });
         });
 
-        group.MapGet("/{id:int}", async (int id, AppDbContext db) =>
+        // Detalle ticket (ownership + privacy)
+        group.MapGet("/{id:int}", async (int id, AppDbContext db, HttpContext http) =>
         {
-            var ticket = await db.Tickets
-                .AsNoTracking()
-                .Where(t => t.Id == id)
+            var userId = http.User.GetUserId();
+            if (userId is null) return Results.Unauthorized();
+
+            var includeEmail = http.User.IsAgentOrAdmin();
+
+            var ticketQuery = db.Tickets.AsNoTracking().Where(t => t.Id == id);
+
+            // ✅ Ownership: requester solo si es dueño
+            if (!http.User.IsAgentOrAdmin())
+                ticketQuery = ticketQuery.Where(t => t.CreatedById == userId.Value);
+
+            var ticket = await ticketQuery
                 .Select(t => new TicketDetailResponse(
                     t.Id,
                     t.Title,
                     t.Description,
                     t.Status,
                     t.Priority,
-                    new UserMini(t.CreatedBy!.Id, t.CreatedBy.DisplayName, t.CreatedBy.Email),
-                    t.AssignedTo == null ? null : new UserMini(t.AssignedTo.Id, t.AssignedTo.DisplayName, t.AssignedTo.Email),
+                    new UserMini(t.CreatedBy!.Id, t.CreatedBy.DisplayName, includeEmail ? t.CreatedBy.Email : null),
+                    t.AssignedTo == null ? null : new UserMini(t.AssignedTo.Id, t.AssignedTo.DisplayName, includeEmail ? t.AssignedTo.Email : null),
                     t.CreatedAtUtc,
                     t.UpdatedAtUtc
                 ))
                 .FirstOrDefaultAsync();
 
             return ticket is null
-            ? Results.NotFound(new { message = "Ticket no encontrado." })
-            : Results.Ok(ticket);
+                ? Results.NotFound(new { message = "Ticket no encontrado." })
+                : Results.Ok(ticket);
         });
 
+        // Cambiar estado (solo Agent/Admin)
         group.MapPatch("/{id:int}/status", async (int id, UpdateTicketStatusRequest req, AppDbContext db) =>
-        
         {
             var ticket = await db.Tickets.FirstOrDefaultAsync(t => t.Id == id);
             if (ticket is null)
                 return Results.NotFound(new { message = "Ticket no encontrado." });
 
-            // Regla: no permitir cambios si está Closed
             if (ticket.Status == TicketStatus.Closed)
                 return Results.Conflict(new { message = "No se puede cambiar el estado de un ticket cerrado." });
 
-            // Regla: no permitir pasar a Closed si no está Resolved
             if (req.Status == TicketStatus.Closed && ticket.Status != TicketStatus.Resolved)
                 return Results.Conflict(new { message = "Solo se puede cerrar un ticket que esté en Resolved." });
 
@@ -137,9 +167,10 @@ public static class TicketEndpoints
             await db.SaveChangesAsync();
 
             return Results.Ok(new { ticket.Id, ticket.Status, ticket.UpdatedAtUtc });
-        })  .RequireAuthorization(policy => policy.RequireRole("Agent", "Admin"));;
+        })
+        .RequireAuthorization(policy => policy.RequireRole("Agent", "Admin"));
 
-        // Asignar o desasignar ticket
+        // Asignar (solo Agent/Admin)
         group.MapPatch("/{id:int}/assign", async (int id, AssignTicketRequest req, AppDbContext db) =>
         {
             var ticket = await db.Tickets.FirstOrDefaultAsync(t => t.Id == id);
@@ -155,7 +186,6 @@ public static class TicketEndpoints
                 if (user is null)
                     return Results.NotFound(new { message = "AssignedToId no existe." });
 
-                // Regla: solo Agent/Admin pueden ser asignados (opcional pero realista)
                 if (user.Role != UserRole.Agent && user.Role != UserRole.Admin)
                     return Results.Conflict(new { message = "Solo un Agent o Admin puede ser asignado a un ticket." });
             }
@@ -165,23 +195,15 @@ public static class TicketEndpoints
 
             await db.SaveChangesAsync();
 
-
             return Results.Ok(new { ticket.Id, ticket.AssignedToId, ticket.UpdatedAtUtc });
-        }) .RequireAuthorization(policy => policy.RequireRole("Agent", "Admin"));
+        })
+        .RequireAuthorization(policy => policy.RequireRole("Agent", "Admin"));
 
         return group;
     }
 }
 
-
-
-public record CreateTicketRequest(
-    string Title,
-    string Description,
-    TicketPriority Priority,
-    int CreatedById,
-    int? AssignedToId
-);
+public record CreateTicketRequest(string Title, string Description, TicketPriority Priority, int? AssignedToId);
 
 public record TicketListItem(
     int Id,
@@ -192,7 +214,6 @@ public record TicketListItem(
     UserMini? AssignedTo,
     DateTime CreatedAtUtc
 );
-
 
 public record TicketDetailResponse(
     int Id,
@@ -206,6 +227,7 @@ public record TicketDetailResponse(
     DateTime? UpdatedAtUtc
 );
 
-public record UserMini(int Id, string DisplayName, string Email);
+public record UserMini(int Id, string DisplayName, string? Email);
+
 public record UpdateTicketStatusRequest(TicketStatus Status);
 public record AssignTicketRequest(int? AssignedToId);

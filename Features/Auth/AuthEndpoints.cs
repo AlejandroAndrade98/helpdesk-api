@@ -1,7 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using BCrypt.Net;
 using HelpDeskApi.Data;
 using HelpDeskApi.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -15,9 +14,42 @@ public static class AuthEndpoints
     {
         var group = app.MapGroup("/auth");
 
-        group.MapPost("/register", async (RegisterRequest req, AppDbContext db) =>
+        group.MapPost("/register", async (
+            RegisterRequest req,
+            AppDbContext db,
+            HttpContext http,
+            IHostEnvironment env) =>
         {
             var email = req.Email.Trim().ToLower();
+
+            // Validaciones básicas (pro)
+            if (string.IsNullOrWhiteSpace(req.DisplayName))
+                return Results.BadRequest(new { message = "DisplayName es requerido." });
+
+            if (string.IsNullOrWhiteSpace(email))
+                return Results.BadRequest(new { message = "Email es requerido." });
+
+            if (string.IsNullOrWhiteSpace(req.Password) || req.Password.Length < 8)
+                return Results.BadRequest(new { message = "Password debe tener mínimo 8 caracteres." });
+
+            // ✅ Política de register para uso real
+            var anyUserExists = await db.Users.AnyAsync();
+
+            if (!env.IsDevelopment())
+            {
+                if (!anyUserExists)
+                {
+                    // Primer usuario (bootstrap): debe ser Admin
+                    if (req.Role != UserRole.Admin)
+                        return Results.BadRequest(new { message = "El primer usuario debe ser Admin." });
+                }
+                else
+                {
+                    // Después del bootstrap: solo Admin autenticado puede registrar
+                    if (!(http.User?.Identity?.IsAuthenticated ?? false) || !http.User.IsInRole("Admin"))
+                        return Results.Forbid();
+                }
+            }
 
             var exists = await db.Users.AnyAsync(u => u.Email == email);
             if (exists)
@@ -69,9 +101,11 @@ public static class AuthEndpoints
 
         var claims = new List<Claim>
         {
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new(JwtRegisteredClaimNames.Email, user.Email),
-            new(ClaimTypes.Role, user.Role.ToString())
+            new(ClaimTypes.Role, user.Role.ToString()),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
