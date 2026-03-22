@@ -16,63 +16,57 @@ public static class AuthEndpoints
 
         group.MapPost("/register", async (
             RegisterRequest req,
-            AppDbContext db,
-            HttpContext http,
-            IHostEnvironment env) =>
+            AppDbContext db) =>
         {
-            var email = req.Email.Trim().ToLower();
+            var firstName = req.FirstName?.Trim() ?? string.Empty;
+            var lastName = req.LastName?.Trim() ?? string.Empty;
+            var email = req.Email.Trim().ToLowerInvariant();
+            var displayName = $"{firstName} {lastName}".Trim();
 
-            // Validaciones básicas (pro)
-            if (string.IsNullOrWhiteSpace(req.DisplayName))
-                return Results.BadRequest(new { message = "DisplayName es requerido." });
+            if (string.IsNullOrWhiteSpace(firstName))
+                return Results.BadRequest(new { message = "FirstName is required." });
+
+            if (string.IsNullOrWhiteSpace(lastName))
+                return Results.BadRequest(new { message = "LastName is required." });
 
             if (string.IsNullOrWhiteSpace(email))
-                return Results.BadRequest(new { message = "Email es requerido." });
+                return Results.BadRequest(new { message = "Email is required." });
 
             if (string.IsNullOrWhiteSpace(req.Password) || req.Password.Length < 8)
-                return Results.BadRequest(new { message = "Password debe tener mínimo 8 caracteres." });
-
-            // ✅ Política de register para uso real
-            var anyUserExists = await db.Users.AnyAsync();
-
-            if (!env.IsDevelopment())
-            {
-                if (!anyUserExists)
-                {
-                    // Primer usuario (bootstrap): debe ser Admin
-                    if (req.Role != UserRole.Admin)
-                        return Results.BadRequest(new { message = "El primer usuario debe ser Admin." });
-                }
-                else
-                {
-                    // Después del bootstrap: solo Admin autenticado puede registrar
-                    if (!(http.User?.Identity?.IsAuthenticated ?? false) || !http.User.IsInRole("Admin"))
-                        return Results.Forbid();
-                }
-            }
+                return Results.BadRequest(new { message = "Password must be at least 8 characters long." });
 
             var exists = await db.Users.AnyAsync(u => u.Email == email);
             if (exists)
-                return Results.Conflict(new { message = "Ya existe un usuario con ese email." });
+                return Results.Conflict(new { message = "A user with that email already exists." });
+
+            var anyUserExists = await db.Users.AnyAsync();
+
+            // Cambia Requester por Customer si ese es el nombre real de tu enum
+            var assignedRole = anyUserExists ? UserRole.Requester : UserRole.Admin;
 
             var user = new User
             {
-                DisplayName = req.DisplayName.Trim(),
+                DisplayName = displayName,
                 Email = email,
-                Role = req.Role,
+                Role = assignedRole,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password)
             };
 
             db.Users.Add(user);
             await db.SaveChangesAsync();
 
-            return Results.Created($"/users/{user.Id}",
-                new { user.Id, user.DisplayName, user.Email, user.Role });
+            return Results.Created($"/users/{user.Id}", new
+            {
+                user.Id,
+                user.DisplayName,
+                user.Email,
+                user.Role
+            });
         });
 
         group.MapPost("/login", async (LoginRequest req, AppDbContext db, IConfiguration config) =>
         {
-            var email = req.Email.Trim().ToLower();
+            var email = req.Email.Trim().ToLowerInvariant();
 
             var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email);
             if (user is null || string.IsNullOrWhiteSpace(user.PasswordHash))
@@ -95,9 +89,14 @@ public static class AuthEndpoints
 
     private static string CreateJwt(User user, IConfiguration config)
     {
-        var key = config["Jwt:Key"]!;
-        var issuer = config["Jwt:Issuer"]!;
-        var audience = config["Jwt:Audience"]!;
+        var key = config["Jwt:Key"]
+            ?? throw new InvalidOperationException("Missing Jwt:Key");
+
+        var issuer = config["Jwt:Issuer"]
+            ?? throw new InvalidOperationException("Missing Jwt:Issuer");
+
+        var audience = config["Jwt:Audience"]
+            ?? throw new InvalidOperationException("Missing Jwt:Audience");
 
         var claims = new List<Claim>
         {
@@ -123,5 +122,5 @@ public static class AuthEndpoints
     }
 }
 
-public record RegisterRequest(string DisplayName, string Email, string Password, UserRole Role);
+public record RegisterRequest(string FirstName, string LastName, string Email, string Password);
 public record LoginRequest(string Email, string Password);

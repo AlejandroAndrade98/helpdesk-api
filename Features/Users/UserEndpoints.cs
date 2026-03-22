@@ -1,4 +1,5 @@
 using HelpDeskApi.Data;
+using HelpDeskApi.Domain;
 using HelpDeskApi.Features.Auth;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,51 +9,122 @@ public static class UserEndpoints
 {
     public static RouteGroupBuilder MapUserEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/users")
-            .RequireAuthorization();
+        var group = app.MapGroup("/users").RequireAuthorization();
 
-        // Info del usuario autenticado
-        group.MapGet("/me", async (AppDbContext db, HttpContext http) =>
+        // GET /users/me
+        group.MapGet("/me", async (HttpContext http, AppDbContext db) =>
         {
             var userId = http.User.GetUserId();
-            if (userId is null) return Results.Unauthorized();
+            if (userId is null)
+                return Results.Unauthorized();
 
-            var me = await db.Users
+            var user = await db.Users
                 .AsNoTracking()
                 .Where(u => u.Id == userId.Value)
-                .Select(u => new { u.Id, u.DisplayName, u.Email, u.Role })
+                .Select(u => new UserResponse(
+                    u.Id,
+                    u.DisplayName,
+                    u.Email,
+                    u.Role
+                ))
                 .FirstOrDefaultAsync();
 
-            return me is null ? Results.Unauthorized() : Results.Ok(me);
+            return user is null
+                ? Results.NotFound(new { message = "User not found." })
+                : Results.Ok(user);
         });
 
-        // Lista de agentes (para asignación), solo Agent/Admin
-        group.MapGet("/agents", async (AppDbContext db) =>
+        // GET /users
+        // Solo Admin
+        group.MapGet("/", async (HttpContext http, AppDbContext db) =>
         {
-            var agents = await db.Users
-                .AsNoTracking()
-                .Where(u => u.Role == Domain.UserRole.Agent || u.Role == Domain.UserRole.Admin)
-                .OrderBy(u => u.DisplayName)
-                .Select(u => new { u.Id, u.DisplayName, u.Email, u.Role })
-                .ToListAsync();
+            if (!http.User.IsInRole(UserRole.Admin.ToString()))
+                return Results.Forbid();
 
-            return Results.Ok(agents);
-        })
-        .RequireAuthorization(policy => policy.RequireRole("Agent", "Admin"));
-
-        // Lista completa de usuarios, solo Admin
-        group.MapGet("/", async (AppDbContext db) =>
-        {
             var users = await db.Users
                 .AsNoTracking()
-                .OrderBy(u => u.Id)
-                .Select(u => new { u.Id, u.DisplayName, u.Email, u.Role })
+                .OrderBy(u => u.DisplayName)
+                .Select(u => new UserResponse(
+                    u.Id,
+                    u.DisplayName,
+                    u.Email,
+                    u.Role
+                ))
                 .ToListAsync();
 
             return Results.Ok(users);
-        })
-        .RequireAuthorization(policy => policy.RequireRole("Admin"));
+        });
+
+        // GET /users/agents
+        // Solo Agent o Admin
+        group.MapGet("/agents", async (HttpContext http, AppDbContext db) =>
+        {
+            if (!http.User.IsAgentOrAdmin())
+                return Results.Forbid();
+
+            var agents = await db.Users
+                .AsNoTracking()
+                .Where(u => u.Role == UserRole.Agent || u.Role == UserRole.Admin)
+                .OrderBy(u => u.DisplayName)
+                .Select(u => new UserResponse(
+                    u.Id,
+                    u.DisplayName,
+                    u.Email,
+                    u.Role
+                ))
+                .ToListAsync();
+
+            return Results.Ok(agents);
+        });
+
+        // PATCH /users/{id}/role
+        // Solo Admin
+        group.MapPatch("/{id:int}/role", async (
+            int id,
+            UpdateUserRoleRequest req,
+            HttpContext http,
+            AppDbContext db) =>
+        {
+            if (!http.User.IsInRole(UserRole.Admin.ToString()))
+                return Results.Forbid();
+
+            var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
+            if (user is null)
+                return Results.NotFound(new { message = "User not found." });
+
+            // Evita dejar el sistema sin admins
+            if (user.Role == UserRole.Admin && req.Role != UserRole.Admin)
+            {
+                var adminCount = await db.Users.CountAsync(u => u.Role == UserRole.Admin);
+                if (adminCount <= 1)
+                {
+                    return Results.BadRequest(new
+                    {
+                        message = "You cannot remove the last admin."
+                    });
+                }
+            }
+
+            user.Role = req.Role;
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new UserResponse(
+                user.Id,
+                user.DisplayName,
+                user.Email,
+                user.Role
+            ));
+        });
 
         return group;
     }
 }
+
+public record UpdateUserRoleRequest(UserRole Role);
+
+public record UserResponse(
+    int Id,
+    string DisplayName,
+    string Email,
+    UserRole Role
+);
