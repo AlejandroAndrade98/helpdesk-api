@@ -22,7 +22,7 @@ services:
       Db__Provider: "postgres"
       Db__AutoMigrate: "true"
     ports:
-      - "8080:8080"
+      - "8080:10000"
     depends_on:
       db:
         condition: service_healthy
