@@ -58,9 +58,14 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        var key = builder.Configuration["Jwt:Key"]!;
-        var issuer = builder.Configuration["Jwt:Issuer"]!;
-        var audience = builder.Configuration["Jwt:Audience"]!;
+        var key = builder.Configuration["Jwt:Key"]
+            ?? throw new InvalidOperationException("Falta Jwt:Key en la configuración.");
+
+        var issuer = builder.Configuration["Jwt:Issuer"]
+            ?? throw new InvalidOperationException("Falta Jwt:Issuer en la configuración.");
+
+        var audience = builder.Configuration["Jwt:Audience"]
+            ?? throw new InvalidOperationException("Falta Jwt:Audience en la configuración.");
 
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -76,6 +81,27 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Frontend", policy =>
+    {
+        policy
+            .SetIsOriginAllowed(origin =>
+            {
+                if (string.IsNullOrWhiteSpace(origin)) return false;
+
+                var uri = new Uri(origin);
+
+                return origin == "http://localhost:5173"
+                    || origin == "http://localhost:3000"
+                    || origin == "https://lovable.dev"
+                    || uri.Host.EndsWith(".lovable.app");
+            })
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
 var app = builder.Build();
 // Auto-migrate: en Development siempre, en Production solo si Db:AutoMigrate=true
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Db:AutoMigrate"))
@@ -86,11 +112,13 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Db:
 }
 
 
-
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Swagger:Enabled"))
+{
     app.UseSwagger();
     app.UseSwaggerUI();
+}
 
-
+app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
 
