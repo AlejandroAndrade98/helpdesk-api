@@ -46,11 +46,18 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
     if (provider == "postgres")
     {
-        options.UseNpgsql(conn);
+        options.UseNpgsql(conn, npgsqlOptions =>
+        {
+            npgsqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorCodesToAdd: null);
+
+            npgsqlOptions.CommandTimeout(60);
+        });
     }
     else
     {
-        // default: sqlite (local dev)
         options.UseSqlite(conn ?? "Data Source=helpdesk.db");
     }
 });

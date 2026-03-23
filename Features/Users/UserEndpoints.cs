@@ -12,26 +12,42 @@ public static class UserEndpoints
         var group = app.MapGroup("/users").RequireAuthorization();
 
         // GET /users/me
-        group.MapGet("/me", async (HttpContext http, AppDbContext db) =>
+        group.MapGet("/me", async (HttpContext http, AppDbContext db, ILoggerFactory loggerFactory) =>
         {
-            var userId = http.User.GetUserId();
-            if (userId is null)
-                return Results.Unauthorized();
+            var logger = loggerFactory.CreateLogger("UsersMe");
 
-            var user = await db.Users
-                .AsNoTracking()
-                .Where(u => u.Id == userId.Value)
-                .Select(u => new UserResponse(
-                    u.Id,
-                    u.DisplayName,
-                    u.Email,
-                    u.Role
-                ))
-                .FirstOrDefaultAsync();
+            try
+            {
+                var userId = http.User.GetUserId();
+                logger.LogInformation("GET /users/me userId={UserId}", userId);
 
-            return user is null
-                ? Results.NotFound(new { message = "User not found." })
-                : Results.Ok(user);
+                if (userId is null)
+                    return Results.Unauthorized();
+
+                var user = await db.Users
+                    .AsNoTracking()
+                    .Where(u => u.Id == userId.Value)
+                    .Select(u => new UserResponse(
+                        u.Id,
+                        u.DisplayName,
+                        u.Email,
+                        u.Role
+                    ))
+                    .FirstOrDefaultAsync();
+
+                return user is null
+                    ? Results.NotFound(new { message = "User not found." })
+                    : Results.Ok(user);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "GET /users/me failed");
+                return Results.Problem(
+                    title: "Users/me failed",
+                    detail: ex.Message,
+                    statusCode: 500
+                );
+            }
         });
 
         // GET /users
