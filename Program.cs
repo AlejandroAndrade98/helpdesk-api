@@ -10,6 +10,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 
+using System.Diagnostics;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Swagger (Swashbuckle)
@@ -110,6 +112,66 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+// Middleware temporal para medir tiempos de cada request
+app.Use(async (context, next) =>
+{
+    var sw = Stopwatch.StartNew();
+
+    await next();
+
+    sw.Stop();
+
+    Console.WriteLine(
+        $"[{DateTime.UtcNow:O}] {context.Request.Method} {context.Request.Path}{context.Request.QueryString} -> {context.Response.StatusCode} in {sw.ElapsedMilliseconds}ms");
+});
+
+// Health simple: mide si el contenedor/API está vivo
+app.MapGet("/health", () =>
+{
+    return Results.Ok(new
+    {
+        ok = true,
+        service = "HelpDeskApi",
+        environment = app.Environment.EnvironmentName,
+        utc = DateTime.UtcNow
+    });
+});
+
+// DB health: mide conexión básica a la base
+app.MapGet("/db-health", async (AppDbContext db) =>
+{
+    var sw = Stopwatch.StartNew();
+
+    var canConnect = await db.Database.CanConnectAsync();
+
+    sw.Stop();
+
+    return Results.Ok(new
+    {
+        ok = canConnect,
+        elapsedMs = sw.ElapsedMilliseconds,
+        utc = DateTime.UtcNow
+    });
+});
+
+// DB ping real: ejecuta una consulta mínima para medir lectura real
+app.MapGet("/db-ping", async (AppDbContext db) =>
+{
+    var sw = Stopwatch.StartNew();
+
+    var userCount = await db.Users.CountAsync();
+
+    sw.Stop();
+
+    return Results.Ok(new
+    {
+        ok = true,
+        elapsedMs = sw.ElapsedMilliseconds,
+        userCount,
+        utc = DateTime.UtcNow
+    });
+});
 // Auto-migrate: en Development siempre, en Production solo si Db:AutoMigrate=true
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Db:AutoMigrate"))
 {
