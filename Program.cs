@@ -104,6 +104,7 @@ builder.Services.AddCors(options =>
                 return origin == "http://localhost:5173"
                     || origin == "http://localhost:3000"
                     || origin == "https://lovable.dev"
+                    || uri.Host.EndsWith(".lovable.app")
                     || uri.Host.EndsWith(".vercel.app");
             })
             .AllowAnyHeader()
