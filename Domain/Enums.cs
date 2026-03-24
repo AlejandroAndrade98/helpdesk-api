@@ -7,7 +7,8 @@ public enum TicketStatus
     InProgress = 3,
     WaitingOnCustomer = 4,
     Resolved = 5,
-    Closed = 6
+    Closed = 6,
+    OnHold = 7
 }
 
 public enum TicketPriority

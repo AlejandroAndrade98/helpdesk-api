@@ -3,19 +3,16 @@ using HelpDeskApi.Features.Users;
 using Microsoft.EntityFrameworkCore;
 using HelpDeskApi.Features.Tickets;
 using HelpDeskApi.Features.Comments;
-
 using System.Text;
 using HelpDeskApi.Features.Auth;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
-
 using System.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Swagger (Swashbuckle)
-builder.Services.AddEndpointsApiExplorer(); 
+builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -33,35 +30,27 @@ builder.Services.AddSwaggerGen(options =>
         Description = "JWT Authorization header using the Bearer scheme."
     });
 
-    // Forma nueva: requirement basado en el documento + reference helper
     options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
     {
         [new OpenApiSecuritySchemeReference(schemeId, document)] = new List<string>()
     });
 });
 
-// EF Core (SQLite o Postgres según config)
+// EF Core, solo Postgres / Supabase
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    var provider = builder.Configuration["Db:Provider"]?.ToLowerInvariant();
-    var conn = builder.Configuration.GetConnectionString("Default");
+    var conn = builder.Configuration.GetConnectionString("Default")
+        ?? throw new InvalidOperationException("Falta ConnectionStrings:Default para Postgres.");
 
-    if (provider == "postgres")
+    options.UseNpgsql(conn, npgsqlOptions =>
     {
-        options.UseNpgsql(conn, npgsqlOptions =>
-        {
-            npgsqlOptions.EnableRetryOnFailure(
-                maxRetryCount: 5,
-                maxRetryDelay: TimeSpan.FromSeconds(10),
-                errorCodesToAdd: null);
+        npgsqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(10),
+            errorCodesToAdd: null);
 
-            npgsqlOptions.CommandTimeout(60);
-        });
-    }
-    else
-    {
-        options.UseSqlite(conn ?? "Data Source=helpdesk.db");
-    }
+        npgsqlOptions.CommandTimeout(60);
+    });
 });
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -114,20 +103,16 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Middleware temporal para medir tiempos de cada request
 app.Use(async (context, next) =>
 {
     var sw = Stopwatch.StartNew();
-
     await next();
-
     sw.Stop();
 
     Console.WriteLine(
         $"[{DateTime.UtcNow:O}] {context.Request.Method} {context.Request.Path}{context.Request.QueryString} -> {context.Response.StatusCode} in {sw.ElapsedMilliseconds}ms");
 });
 
-// Health simple: mide si el contenedor/API está vivo
 app.MapGet("/health", () =>
 {
     return Results.Ok(new
@@ -139,13 +124,10 @@ app.MapGet("/health", () =>
     });
 });
 
-// DB health: mide conexión básica a la base
 app.MapGet("/db-health", async (AppDbContext db) =>
 {
     var sw = Stopwatch.StartNew();
-
     var canConnect = await db.Database.CanConnectAsync();
-
     sw.Stop();
 
     return Results.Ok(new
@@ -156,13 +138,10 @@ app.MapGet("/db-health", async (AppDbContext db) =>
     });
 });
 
-// DB ping real: ejecuta una consulta mínima para medir lectura real
 app.MapGet("/db-ping", async (AppDbContext db) =>
 {
     var sw = Stopwatch.StartNew();
-
     var userCount = await db.Users.CountAsync();
-
     sw.Stop();
 
     return Results.Ok(new
@@ -173,14 +152,13 @@ app.MapGet("/db-ping", async (AppDbContext db) =>
         utc = DateTime.UtcNow
     });
 });
-// Auto-migrate: en Development siempre, en Production solo si Db:AutoMigrate=true
+
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Db:AutoMigrate"))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
 }
-
 
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Swagger:Enabled"))
 {
@@ -192,7 +170,6 @@ app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Endpoints del proyecto
 app.MapUserEndpoints();
 app.MapTicketEndpoints();
 app.MapCommentEndpoints();
