@@ -21,6 +21,11 @@ services:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=helpdesk;Username=postgres;Password=postgres"
       Db__Provider: "postgres"
       Db__AutoMigrate: "true"
+      ASPNETCORE_ENVIRONMENT: "Development"
+      Swagger__Enabled: "true"
+      Jwt__Key: "pon_aqui_una_clave_larga_y_segura_para_local"
+      Jwt__Issuer: "HelpDeskApi"
+      Jwt__Audience: "HelpDeskApi"
     ports:
       - "8080:10000"
     depends_on:

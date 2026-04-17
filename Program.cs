@@ -3,6 +3,7 @@ using HelpDeskApi.Features.Users;
 using Microsoft.EntityFrameworkCore;
 using HelpDeskApi.Features.Tickets;
 using HelpDeskApi.Features.Comments;
+using HelpDeskApi.Features.Reports;
 using System.Text;
 using HelpDeskApi.Features.Auth;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -173,6 +174,7 @@ app.UseAuthorization();
 app.MapUserEndpoints();
 app.MapTicketEndpoints();
 app.MapCommentEndpoints();
+app.MapReportEndpoints();
 app.MapAuthEndpoints();
 
 app.Run();

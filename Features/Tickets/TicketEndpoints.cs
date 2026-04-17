@@ -161,12 +161,22 @@ public static class TicketEndpoints
             if (req.Status == TicketStatus.Closed && ticket.Status != TicketStatus.Resolved)
                 return Results.Conflict(new { message = "Solo se puede cerrar un ticket que esté en Resolved." });
 
-            ticket.Status = req.Status;
-            ticket.UpdatedAtUtc = DateTime.UtcNow;
+            var now = DateTime.UtcNow;
+            ticket.UpdatedAtUtc = now;
 
+            if (req.Status == TicketStatus.Resolved)
+                ticket.ResolvedAtUtc = now;
+
+            if (req.Status == TicketStatus.Closed && ticket.ClosedAtUtc is null)
+                ticket.ClosedAtUtc = now;
+
+            if (ticket.Status == TicketStatus.Resolved && req.Status != TicketStatus.Resolved && req.Status != TicketStatus.Closed)
+                ticket.ResolvedAtUtc = null;
+
+            ticket.Status = req.Status;
             await db.SaveChangesAsync();
 
-            return Results.Ok(new { ticket.Id, ticket.Status, ticket.UpdatedAtUtc });
+            return Results.Ok(new { ticket.Id, ticket.Status, ticket.UpdatedAtUtc, ticket.ResolvedAtUtc, ticket.ClosedAtUtc });
         })
         .RequireAuthorization(policy => policy.RequireRole("Agent", "Admin"));
 

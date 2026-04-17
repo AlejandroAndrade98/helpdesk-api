@@ -19,4 +19,6 @@ public class Ticket
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAtUtc { get; set; }
+    public DateTime? ResolvedAtUtc { get; set; }
+    public DateTime? ClosedAtUtc { get; set; }
 }
